@@ -1,59 +1,175 @@
+// File: src/App.jsx
+import React, { useEffect, useState } from "react";
 
-import { useEffect, useState } from 'react';
-import usePatternTracker from './hooks/usePatternTracker';
+const VOLS = ["R_10", "R_25", "R_50", "R_75", "R_100"];
 
-function App() {
-  const [ticks, setTicks] = useState([]);
-  const [volatility, setVolatility] = useState('Volatility 100');
+const App = () => {
+  const [tickData, setTickData] = useState({});
+  const [clusterData, setClusterData] = useState({});
+  const [alertState, setAlertState] = useState({});
+  const [digitColors, setDigitColors] = useState({});
+  const [clusterThreshold, setClusterThreshold] = useState(4);
+  const [clusterStats, setClusterStats] = useState({});
 
-  // Simulate WebSocket tick stream (you will replace with real Deriv API logic)
   useEffect(() => {
-    const interval = setInterval(() => {
-      const price = 100 + Math.random(); // Simulate random price
-      const time = Date.now();
-      const newTick = { price, time, volatility };
-      setTicks(prev => [...prev.slice(-9999), newTick]);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [volatility]);
+    const sockets = {};
+    const initialTicks = {};
+    const initialClusters = {};
+    const initialAlerts = {};
 
-  const { sniperAlerts, tickHistory, patternClusters } = usePatternTracker(ticks, volatility);
+    VOLS.forEach((market) => {
+      initialTicks[market] = [];
+      initialClusters[market] = [];
+      initialAlerts[market] = false;
+
+      const socket = new WebSocket("wss://ws.derivws.com/websockets/v3?app_id=1089");
+      sockets[market] = socket;
+
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ ticks: market }));
+      };
+
+      socket.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.msg_type === "tick") {
+          const quote = data.tick.quote.toString();
+          const digit = parseInt(quote[quote.length - 1], 10);
+          if (!isNaN(digit) || digit === 0) {
+            setTickData((prev) => {
+              const updated = {
+                ...prev,
+                [market]: [digit, ...(prev[market] || []).slice(0, 29)],
+              };
+              detectClusters(market, updated[market]);
+              return updated;
+            });
+          }
+        }
+      };
+    });
+
+    setTickData(initialTicks);
+    setClusterData(initialClusters);
+    setAlertState(initialAlerts);
+
+    return () => {
+      Object.values(sockets).forEach((s) => s.close());
+    };
+  }, [clusterThreshold]);
+
+  const speak = (text) => {
+    const synth = window.speechSynthesis;
+    const utterance = new SpeechSynthesisUtterance(text);
+    synth.cancel();
+    synth.speak(utterance);
+  };
+
+  const detectClusters = (market, digits) => {
+    const clusters = [];
+    let streak = 1;
+
+    for (let i = 1; i < digits.length; i++) {
+      if (digits[i] === digits[i - 1]) {
+        streak++;
+      } else {
+        if (streak >= 2) {
+          clusters.push({ digit: digits[i - 1], length: streak, endIndex: i - 1 });
+        }
+        streak = 1;
+      }
+    }
+    if (streak >= 2) {
+      clusters.push({ digit: digits[digits.length - 1], length: streak, endIndex: digits.length - 1 });
+    }
+
+    const counted = {};
+    clusters.forEach((c) => {
+      counted[c.digit] = (counted[c.digit] || 0) + 1;
+    });
+
+    const sniperDigit = Object.keys(counted).find((d) => counted[d] >= clusterThreshold);
+    setClusterData((prev) => ({ ...prev, [market]: clusters }));
+
+    // Always update success stats even if clusterThreshold not hit
+    let statsUpdate = { ...clusterStats };
+    Object.keys(counted).forEach((digit) => {
+      const count = counted[digit];
+      if (count === 3) {
+        statsUpdate["3"] = (statsUpdate["3"] || 0) + 1;
+      } else if (count === 4) {
+        statsUpdate["4"] = (statsUpdate["4"] || 0) + 1;
+      }
+    });
+    setClusterStats(statsUpdate);
+
+    if (sniperDigit && !alertState[market + sniperDigit]) {
+      speak(`Sniper alert on ${market.replace("R_", "Vol ")}. Digit ${sniperDigit} formed ${clusterThreshold} clusters.`);
+      setAlertState((prev) => ({ ...prev, [market + sniperDigit]: true }));
+      const defaultColors = ["bg-yellow-500 text-black", "bg-green-500 text-black", "bg-red-500 text-white", "bg-blue-500 text-white", "bg-purple-500 text-white", "bg-pink-500 text-white"];
+      const digitClusterCount = counted[sniperDigit];
+      const assignedColor = defaultColors[(digitClusterCount - 1) % defaultColors.length];
+      setDigitColors((prev) => ({ ...prev, [market]: { ...(prev[market] || {}), [sniperDigit]: assignedColor } }));
+    }
+  };
+
+  const getClusterClass = (market, i) => {
+    const clusters = clusterData[market] || [];
+    const digits = tickData[market] || [];
+    const currentDigit = digits[i];
+    const colorMap = digitColors[market] || {};
+
+    for (let idx = 0; idx < clusters.length; idx++) {
+      const cluster = clusters[idx];
+      const start = cluster.endIndex - cluster.length + 1;
+      if (i >= start && i <= cluster.endIndex) {
+        if (colorMap[cluster.digit]) return colorMap[cluster.digit];
+        const fallbackColors = ["bg-yellow-500 text-black", "bg-green-500 text-black", "bg-red-500 text-white", "bg-blue-500 text-white"];
+        return fallbackColors[idx % fallbackColors.length];
+      }
+    }
+    return "bg-gray-900";
+  };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6 font-mono">
-      <h1 className="text-2xl mb-4 font-bold">🧠 Digit Differ Sniper Tool</h1>
-
-      <div className="mb-4">
-        <label className="mr-2">Select Volatility:</label>
+    <div className="min-h-screen bg-black text-green-400 p-4 font-mono">
+      <h1 className="text-xl mb-4">🎯 Sniper Bot v4.8 – Pattern Tracker</h1>
+      <div className="mb-6">
+        <label htmlFor="threshold" className="mr-2">Cluster Threshold:</label>
         <select
-          className="text-black p-1 rounded"
-          value={volatility}
-          onChange={(e) => setVolatility(e.target.value)}
+          id="threshold"
+          value={clusterThreshold}
+          onChange={(e) => setClusterThreshold(Number(e.target.value))}
+          className="bg-gray-800 border border-green-500 text-green-300 px-2 py-1"
         >
-          <option>Volatility 10</option>
-          <option>Volatility 25</option>
-          <option>Volatility 50</option>
-          <option>Volatility 75</option>
-          <option>Volatility 100</option>
+          {[3, 4, 5, 6].map((val) => (
+            <option key={val} value={val}>{val}</option>
+          ))}
         </select>
       </div>
 
-      <div className="bg-gray-800 p-4 rounded shadow">
-        <h2 className="text-xl font-semibold mb-2">🎯 Sniper Alerts</h2>
-        <ul className="max-h-80 overflow-y-scroll">
-          {sniperAlerts.map((alert, i) => (
-            <li key={i} className="mb-2 p-2 border border-green-500 rounded">
-              <div><strong>Digit:</strong> {alert.digit}</div>
-              <div><strong>Volatility:</strong> {alert.volatility}</div>
-              <div><strong>Pattern Count:</strong> {alert.sniperCount}</div>
-              <div><strong>Chain:</strong> {alert.groupChain.join(' → ')}</div>
-              <div><strong>Time:</strong> {new Date(alert.time).toLocaleTimeString()}</div>
-            </li>
-          ))}
-        </ul>
+      <div className="mb-6">
+        <h2 className="text-lg mb-2">📈 Cluster Stats:</h2>
+        <p>🔁 3 Clusters that stopped: {clusterStats["3"] || 0}</p>
+        <p>🔁 4 Clusters that stopped: {clusterStats["4"] || 0}</p>
       </div>
+
+      {VOLS.map((market) => (
+        <div key={market} className="mb-8 border-t border-gray-700 pt-4">
+          <h2 className="text-lg mb-2">📊 {market.replace("R_", "Vol ")}</h2>
+          <div className="grid grid-cols-10 gap-2">
+            {(tickData[market] || []).map((tick, i) => (
+              <div
+                key={i}
+                className={`${getClusterClass(market, i)} p-2 text-center rounded border border-green-700`}
+              >
+                {tick}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
-}
+};
 
 export default App;
