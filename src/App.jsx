@@ -1,7 +1,10 @@
 // File: src/App.jsx
 import React, { useEffect, useState } from "react";
 
-const VOLS = ["R_10", "R_25", "R_50", "R_75", "R_100"];
+const VOLS = [
+  "R_10", "R_25", "R_50", "R_75", "R_100", 
+  "R_10_HZ", "R_25_HZ", "R_50_HZ", "R_75_HZ", "R_100_HZ"
+];
 
 export default function App() {
   const [tickData, setTickData] = useState({});
@@ -22,8 +25,8 @@ export default function App() {
       socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.msg_type === "tick") {
-          const quoteStr = msg.tick.quote.toFixed(2).toString();
-          const lastChar = quoteStr.charAt(quoteStr.length - 1);
+          const quoteStr = msg.tick.quote.toString();
+          const lastChar = quoteStr[quoteStr.length - 1];
           const digit = parseInt(lastChar, 10);
           if (!isNaN(digit)) {
             setTickData((prev) => {
@@ -76,7 +79,7 @@ export default function App() {
       const [dig, cnt] = sniper;
       const key = market + dig;
       if (!alertState[key]) {
-        speak(`Sniper alert on ${market.replace("R_", "Vol ")}. Digit ${dig} formed ${clusterThreshold} clusters.`);
+        speak(`Sniper alert on ${market.replace("R_", "Vol ").replace("_HZ", "HZ")}. Digit ${dig} formed ${clusterThreshold} clusters.`);
         setAlertState((prev) => ({ ...prev, [key]: true }));
         const colors = ["bg-yellow-500", "bg-green-500", "bg-red-500", "bg-blue-500", "bg-purple-500", "bg-pink-500"];
         setDigitColors((prev) => ({
@@ -105,19 +108,19 @@ export default function App() {
       <div className="mb-6 text-green-200">
         <label>Cluster Threshold: </label>
         <select value={clusterThreshold} onChange={(e) => setClusterThreshold(+e.target.value)} className="bg-gray-800 p-1">
-          {[3,4,5,6].map(n => <option key={n} value={n}>{n}</option>)}
+          {[3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
         </select>
       </div>
       <div className="mb-6 text-green-300">
         <div>Stats:</div>
-        {[3,4,5,6].map(n => <div key={n}>Clusters {n}: {clusterStats[n] || 0}</div>)}
+        {[3, 4, 5, 6].map(n => <div key={n}>Clusters {n}: {clusterStats[n] || 0}</div>)}
       </div>
       {VOLS.map(m => (
         <div key={m} className="mb-6">
-          <h2 className="text-green-400 mb-2">{m.replace("R_","Vol ")}</h2>
+          <h2 className="text-green-400 mb-2">{m.replace("R_", "Vol ").replace("_HZ", " HZ")}</h2>
           <div className="grid grid-cols-10 gap-1">
-            {(tickData[m] || []).map((d,i) => (
-              <div key={i} className={`${getClass(m,i)} p-2 rounded border border-gray-600`}>{d}</div>
+            {(tickData[m] || []).map((d, i) => (
+              <div key={i} className={`${getClass(m, i)} p-2 rounded border border-gray-600`}>{d}</div>
             ))}
           </div>
         </div>
