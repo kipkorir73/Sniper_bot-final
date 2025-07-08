@@ -1,20 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 const App = () => {
-  const [activeSymbols, setActiveSymbols] = useState(['R_10', 'R_25', 'R_50', 'R_75', 'R_100']);
+  const [activeSymbols] = useState(['R_10', 'R_25', 'R_50', 'R_75', 'R_100']);
   const [tickData, setTickData] = useState({});
   const [clusterThreshold, setClusterThreshold] = useState(3);
   const [alerts, setAlerts] = useState([]);
   const [stats, setStats] = useState({ 3: 0, 4: 0, 5: 0, 6: 0 });
+  const [connectionStatus, setConnectionStatus] = useState('Disconnected');
   const ws = useRef(null);
+  const pingInterval = useRef(null);
   const digitHistory = useRef({});
   const clusterTracker = useRef({});
 
-  // Initialize WebSocket and subscribe to ticks
-  useEffect(() => {
+  // Initialize WebSocket connection
+  const connectWebSocket = () => {
+    setConnectionStatus('Connecting...');
     ws.current = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
 
     ws.current.onopen = () => {
+      setConnectionStatus('Connected');
+      console.log('WebSocket connected');
+      
+      // Start ping interval (every 30 seconds)
+      pingInterval.current = setInterval(() => {
+        if (ws.current?.readyState === WebSocket.OPEN) {
+          ws.current.send(JSON.stringify({ ping: 1 }));
+        }
+      }, 30000);
+
+      // Subscribe to ticks
       activeSymbols.forEach(symbol => {
         ws.current.send(JSON.stringify({
           ticks: symbol,
@@ -29,15 +43,46 @@ const App = () => {
 
     ws.current.onmessage = (e) => {
       const data = JSON.parse(e.data);
+      
+      // Handle pong response
+      if (data.msg_type === 'ping') {
+        return;
+      }
+      
+      // Process tick data
       if (data.msg_type === 'tick') {
         processTick(data.tick);
       }
     };
 
+    ws.current.onclose = (e) => {
+      setConnectionStatus('Disconnected');
+      console.log('WebSocket closed:', e.reason);
+      clearInterval(pingInterval.current);
+      
+      // Attempt reconnect after 5 seconds
+      setTimeout(() => {
+        if (connectionStatus !== 'Connected') {
+          connectWebSocket();
+        }
+      }, 5000);
+    };
+
+    ws.current.onerror = (error) => {
+      setConnectionStatus('Error');
+      console.error('WebSocket error:', error);
+    };
+  };
+
+  // Connect on component mount
+  useEffect(() => {
+    connectWebSocket();
+    
     return () => {
       if (ws.current) {
         ws.current.close();
       }
+      clearInterval(pingInterval.current);
     };
   }, []);
 
@@ -90,9 +135,10 @@ const App = () => {
           triggerAlert(symbol, prevDigit, digitTracker.clusters.length);
           
           // Update stats
-          const newStats = { ...stats };
-          newStats[clusterThreshold]++;
-          setStats(newStats);
+          setStats(prev => ({
+            ...prev,
+            [clusterThreshold]: prev[clusterThreshold] + 1
+          }));
         }
         
         // Reset current streak
@@ -115,10 +161,10 @@ const App = () => {
       timestamp: new Date().toLocaleTimeString()
     }]);
     
-    // Native browser TTS (no dependencies)
+    // Native browser TTS
     if ('speechSynthesis' in window) {
       const speech = new SpeechSynthesisUtterance(alertMessage);
-      speech.rate = 1.2; // Faster speech
+      speech.rate = 1.2;
       window.speechSynthesis.speak(speech);
     }
   };
@@ -126,9 +172,8 @@ const App = () => {
   // Get color for digit based on cluster status
   const getDigitColor = (symbol, digit, index) => {
     const history = digitHistory.current[symbol] || [];
-    if (index === history.length - 1) return 'bg-yellow-200'; // Highlight latest
+    if (index === history.length - 1) return 'bg-yellow-200';
     
-    // Check if part of a cluster
     if (index > 0 && history[index] === history[index - 1]) {
       return 'bg-blue-200';
     }
@@ -141,7 +186,16 @@ const App = () => {
 
   return (
     <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Deriv Sniper Bot</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">Deriv Sniper Bot</h1>
+        <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+          connectionStatus === 'Connected' ? 'bg-green-100 text-green-800' : 
+          connectionStatus === 'Connecting...' ? 'bg-yellow-100 text-yellow-800' : 
+          'bg-red-100 text-red-800'
+        }`}>
+          {connectionStatus}
+        </div>
+      </div>
       
       <div className="mb-4">
         <label className="mr-2">Cluster Threshold:</label>
