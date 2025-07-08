@@ -33,8 +33,9 @@ const App = () => {
         const data = JSON.parse(e.data);
         if (data.msg_type === "tick") {
           const quote = data.tick.quote.toString();
-          const digit = parseInt(quote[quote.length - 1], 10);
-          if (!isNaN(digit) || digit === 0) {
+          const digitStr = quote[quote.length - 1];
+          const digit = Number(digitStr);
+          if (!isNaN(digit)) {
             setTickData((prev) => {
               const updated = {
                 ...prev,
@@ -90,7 +91,6 @@ const App = () => {
     const sniperDigit = Object.keys(counted).find((d) => counted[d] >= clusterThreshold);
     setClusterData((prev) => ({ ...prev, [market]: clusters }));
 
-    // Always update success stats even if clusterThreshold not hit
     let statsUpdate = { ...clusterStats };
     Object.keys(counted).forEach((digit) => {
       const count = counted[digit];
@@ -103,12 +103,14 @@ const App = () => {
     setClusterStats(statsUpdate);
 
     if (sniperDigit && !alertState[market + sniperDigit]) {
-      speak(`Sniper alert on ${market.replace("R_", "Vol ")}. Digit ${sniperDigit} formed ${clusterThreshold} clusters.`);
-      setAlertState((prev) => ({ ...prev, [market + sniperDigit]: true }));
-      const defaultColors = ["bg-yellow-500 text-black", "bg-green-500 text-black", "bg-red-500 text-white", "bg-blue-500 text-white", "bg-purple-500 text-white", "bg-pink-500 text-white"];
-      const digitClusterCount = counted[sniperDigit];
-      const assignedColor = defaultColors[(digitClusterCount - 1) % defaultColors.length];
-      setDigitColors((prev) => ({ ...prev, [market]: { ...(prev[market] || {}), [sniperDigit]: assignedColor } }));
+      const sniperClusters = clusters.filter(c => c.digit.toString() === sniperDigit);
+      if (sniperClusters.length >= clusterThreshold) {
+        speak(`Sniper alert on ${market.replace("R_", "Vol ")}. Digit ${sniperDigit} formed ${clusterThreshold} clusters.`);
+        setAlertState((prev) => ({ ...prev, [market + sniperDigit]: true }));
+        const defaultColors = ["bg-yellow-500 text-black", "bg-green-500 text-black", "bg-red-500 text-white", "bg-blue-500 text-white", "bg-purple-500 text-white", "bg-pink-500 text-white"];
+        const assignedColor = defaultColors[(sniperClusters.length - 1) % defaultColors.length];
+        setDigitColors((prev) => ({ ...prev, [market]: { ...(prev[market] || {}), [sniperDigit]: assignedColor } }));
+      }
     }
   };
 
@@ -132,7 +134,7 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-black text-green-400 p-4 font-mono">
-      <h1 className="text-xl mb-4">🎯 Sniper Bot v4.8 – Pattern Tracker</h1>
+      <h1 className="text-xl mb-4">🎯 Sniper Bot v4.9 – Pattern Tracker</h1>
       <div className="mb-6">
         <label htmlFor="threshold" className="mr-2">Cluster Threshold:</label>
         <select
