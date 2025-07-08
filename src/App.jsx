@@ -22,14 +22,18 @@ export default function App() {
       socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.msg_type === "tick") {
-          const price = msg.tick.quote;
-          const digit = Math.floor(price) % 10; // robust extraction of last digit including 0
-          setTickData((prev) => {
-            const arr = prev[market] || [];
-            const updated = [digit, ...arr].slice(0, 30);
-            detectClusters(market, updated);
-            return { ...prev, [market]: updated };
-          });
+          const quoteStr = msg.tick.quote.toString();
+          // correctly extract last digit from the tick quote string (includes decimals)
+          const lastChar = quoteStr[quoteStr.length - 1];
+          const digit = parseInt(lastChar, 10);
+          if (!isNaN(digit)) {
+            setTickData((prev) => {
+              const arr = prev[market] || [];
+              const updated = [digit, ...arr].slice(0, 30);
+              detectClusters(market, updated);
+              return { ...prev, [market]: updated };
+            });
+          }
         }
       };
     });
@@ -57,29 +61,32 @@ export default function App() {
 
     setClusterData((prev) => ({ ...prev, [market]: clusters }));
 
-    // count clusters
+    // count clusters per digit
     const counted = {};
-    clusters.forEach((c) => counted[c.digit] = (counted[c.digit] || 0) + 1);
+    clusters.forEach((c) => {
+      counted[c.digit] = (counted[c.digit] || 0) + 1;
+    });
 
-    // update stats always
+    // update stats for all cluster counts
     const stats = { ...clusterStats };
     Object.entries(counted).forEach(([d, cnt]) => {
       stats[cnt] = (stats[cnt] || 0) + 1;
     });
     setClusterStats(stats);
 
-    // trigger alert
-    const sniper = Object.entries(counted).find(([_, cnt]) => cnt >= clusterThreshold);
+    // trigger alert when threshold met
+    const sniper = Object.entries(counted).find(([d, cnt]) => cnt >= clusterThreshold);
     if (sniper) {
-      const [digitStr, cnt] = sniper;
-      const key = market + digitStr;
+      const [dig, cnt] = sniper;
+      const key = market + dig;
       if (!alertState[key]) {
-        speak(`Sniper alert on ${market.replace("R_", "Vol ")}. Digit ${digitStr} formed ${clusterThreshold} clusters.`);
+        speak(`Sniper alert on ${market.replace("R_", "Vol ")}. Digit ${dig} formed ${clusterThreshold} clusters.`);
         setAlertState((prev) => ({ ...prev, [key]: true }));
+        // assign color
         const colors = ["bg-yellow-500", "bg-green-500", "bg-red-500", "bg-blue-500", "bg-purple-500", "bg-pink-500"];
         setDigitColors((prev) => ({
           ...prev,
-          [market]: { ...(prev[market] || {}), [digitStr]: colors[(cnt - 1) % colors.length] + " text-white" }
+          [market]: { ...(prev[market] || {}), [dig]: colors[(cnt - 1) % colors.length] + " text-white" }
         }));
       }
     }
@@ -89,7 +96,7 @@ export default function App() {
     const clusters = clusterData[market] || [];
     const digits = tickData[market] || [];
     const d = digits[idx];
-    const colorMap = (digitColors[market] || {});
+    const colorMap = digitColors[market] || {};
     for (const c of clusters) {
       const start = c.end - c.length + 1;
       if (idx >= start && idx <= c.end && c.digit === d) return colorMap[d] || "bg-gray-700 text-white";
@@ -108,15 +115,13 @@ export default function App() {
       </div>
       <div className="mb-6 text-green-300">
         <div>Stats:</div>
-        {[3,4,5,6].map(n => (
-          <div key={n}>Clusters {n}: {clusterStats[n] || 0}</div>
-        ))}
+        {[3,4,5,6].map(n => <div key={n}>Clusters {n}: {clusterStats[n] || 0}</div>)}
       </div>
       {VOLS.map(m => (
         <div key={m} className="mb-6">
-          <h2 className="text-green-400">{m.replace("R_","Vol ")}</h2>
+          <h2 className="text-green-400 mb-2">{m.replace("R_","Vol ")}</h2>
           <div className="grid grid-cols-10 gap-1">
-            {(tickData[m]||[]).map((d,i) => (
+            {(tickData[m] || []).map((d,i) => (
               <div key={i} className={`${getClass(m,i)} p-2 rounded border border-gray-600`}>{d}</div>
             ))}
           </div>
