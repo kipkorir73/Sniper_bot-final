@@ -33,8 +33,8 @@ const App = () => {
         const data = JSON.parse(e.data);
         if (data.msg_type === "tick") {
           const quote = data.tick.quote.toString();
-          const digitStr = quote[quote.length - 1];
-          const digit = Number(digitStr);
+          const digit = Number(quote[quote.length - 1]);
+
           if (!isNaN(digit)) {
             setTickData((prev) => {
               const updated = {
@@ -74,13 +74,22 @@ const App = () => {
         streak++;
       } else {
         if (streak >= 2) {
-          clusters.push({ digit: digits[i - 1], length: streak, endIndex: i - 1 });
+          clusters.push({
+            digit: digits[i - 1],
+            length: streak,
+            endIndex: i - 1,
+          });
         }
         streak = 1;
       }
     }
+
     if (streak >= 2) {
-      clusters.push({ digit: digits[digits.length - 1], length: streak, endIndex: digits.length - 1 });
+      clusters.push({
+        digit: digits[digits.length - 1],
+        length: streak,
+        endIndex: digits.length - 1,
+      });
     }
 
     const counted = {};
@@ -91,26 +100,34 @@ const App = () => {
     const sniperDigit = Object.keys(counted).find((d) => counted[d] >= clusterThreshold);
     setClusterData((prev) => ({ ...prev, [market]: clusters }));
 
+    // Update cluster stats
     let statsUpdate = { ...clusterStats };
     Object.keys(counted).forEach((digit) => {
       const count = counted[digit];
-      if (count === 3) {
-        statsUpdate["3"] = (statsUpdate["3"] || 0) + 1;
-      } else if (count === 4) {
-        statsUpdate["4"] = (statsUpdate["4"] || 0) + 1;
-      }
+      if (count === 3) statsUpdate["3"] = (statsUpdate["3"] || 0) + 1;
+      if (count === 4) statsUpdate["4"] = (statsUpdate["4"] || 0) + 1;
+      if (count === 5) statsUpdate["5"] = (statsUpdate["5"] || 0) + 1;
     });
     setClusterStats(statsUpdate);
 
     if (sniperDigit && !alertState[market + sniperDigit]) {
-      const sniperClusters = clusters.filter(c => c.digit.toString() === sniperDigit);
-      if (sniperClusters.length >= clusterThreshold) {
-        speak(`Sniper alert on ${market.replace("R_", "Vol ")}. Digit ${sniperDigit} formed ${clusterThreshold} clusters.`);
-        setAlertState((prev) => ({ ...prev, [market + sniperDigit]: true }));
-        const defaultColors = ["bg-yellow-500 text-black", "bg-green-500 text-black", "bg-red-500 text-white", "bg-blue-500 text-white", "bg-purple-500 text-white", "bg-pink-500 text-white"];
-        const assignedColor = defaultColors[(sniperClusters.length - 1) % defaultColors.length];
-        setDigitColors((prev) => ({ ...prev, [market]: { ...(prev[market] || {}), [sniperDigit]: assignedColor } }));
-      }
+      speak(`Sniper alert on ${market.replace("R_", "Vol ")}. Digit ${sniperDigit} formed ${clusterThreshold} clusters.`);
+      setAlertState((prev) => ({ ...prev, [market + sniperDigit]: true }));
+
+      const colorList = [
+        "bg-yellow-500 text-black",
+        "bg-green-500 text-black",
+        "bg-red-500 text-white",
+        "bg-blue-500 text-white",
+        "bg-purple-500 text-white",
+        "bg-pink-500 text-white",
+      ];
+      const digitClusterCount = counted[sniperDigit];
+      const assignedColor = colorList[(digitClusterCount - 1) % colorList.length];
+      setDigitColors((prev) => ({
+        ...prev,
+        [market]: { ...(prev[market] || {}), [sniperDigit]: assignedColor },
+      }));
     }
   };
 
@@ -120,21 +137,20 @@ const App = () => {
     const currentDigit = digits[i];
     const colorMap = digitColors[market] || {};
 
-    for (let idx = 0; idx < clusters.length; idx++) {
-      const cluster = clusters[idx];
+    for (let cluster of clusters) {
       const start = cluster.endIndex - cluster.length + 1;
-      if (i >= start && i <= cluster.endIndex) {
-        if (colorMap[cluster.digit]) return colorMap[cluster.digit];
-        const fallbackColors = ["bg-yellow-500 text-black", "bg-green-500 text-black", "bg-red-500 text-white", "bg-blue-500 text-white"];
-        return fallbackColors[idx % fallbackColors.length];
+      if (i >= start && i <= cluster.endIndex && cluster.digit === currentDigit) {
+        return colorMap[cluster.digit] || "bg-gray-800 text-white";
       }
     }
-    return "bg-gray-900";
+
+    return "bg-gray-900 text-green-400";
   };
 
   return (
     <div className="min-h-screen bg-black text-green-400 p-4 font-mono">
-      <h1 className="text-xl mb-4">🎯 Sniper Bot v4.9 – Pattern Tracker</h1>
+      <h1 className="text-xl mb-4">🎯 Sniper Bot – Digit Cluster Tracker</h1>
+
       <div className="mb-6">
         <label htmlFor="threshold" className="mr-2">Cluster Threshold:</label>
         <select
@@ -150,21 +166,22 @@ const App = () => {
       </div>
 
       <div className="mb-6">
-        <h2 className="text-lg mb-2">📈 Cluster Stats:</h2>
-        <p>🔁 3 Clusters that stopped: {clusterStats["3"] || 0}</p>
-        <p>🔁 4 Clusters that stopped: {clusterStats["4"] || 0}</p>
+        <h2 className="text-lg mb-2">📊 Cluster Stats:</h2>
+        <p>✅ 3 clusters that stopped: {clusterStats["3"] || 0}</p>
+        <p>✅ 4 clusters that stopped: {clusterStats["4"] || 0}</p>
+        <p>✅ 5 clusters that stopped: {clusterStats["5"] || 0}</p>
       </div>
 
       {VOLS.map((market) => (
         <div key={market} className="mb-8 border-t border-gray-700 pt-4">
-          <h2 className="text-lg mb-2">📊 {market.replace("R_", "Vol ")}</h2>
+          <h2 className="text-lg mb-2">📉 {market.replace("R_", "Vol ")}</h2>
           <div className="grid grid-cols-10 gap-2">
-            {(tickData[market] || []).map((tick, i) => (
+            {(tickData[market] || []).map((digit, i) => (
               <div
                 key={i}
                 className={`${getClusterClass(market, i)} p-2 text-center rounded border border-green-700`}
               >
-                {tick}
+                {digit}
               </div>
             ))}
           </div>
