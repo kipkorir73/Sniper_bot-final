@@ -22,9 +22,8 @@ export default function App() {
       socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.msg_type === "tick") {
-          const quoteStr = msg.tick.quote.toString();
-          // correctly extract last digit from the tick quote string (includes decimals)
-          const lastChar = quoteStr[quoteStr.length - 1];
+          const quoteStr = msg.tick.quote.toFixed(2).toString();
+          const lastChar = quoteStr.charAt(quoteStr.length - 1);
           const digit = parseInt(lastChar, 10);
           if (!isNaN(digit)) {
             setTickData((prev) => {
@@ -61,20 +60,17 @@ export default function App() {
 
     setClusterData((prev) => ({ ...prev, [market]: clusters }));
 
-    // count clusters per digit
     const counted = {};
     clusters.forEach((c) => {
       counted[c.digit] = (counted[c.digit] || 0) + 1;
     });
 
-    // update stats for all cluster counts
     const stats = { ...clusterStats };
     Object.entries(counted).forEach(([d, cnt]) => {
       stats[cnt] = (stats[cnt] || 0) + 1;
     });
     setClusterStats(stats);
 
-    // trigger alert when threshold met
     const sniper = Object.entries(counted).find(([d, cnt]) => cnt >= clusterThreshold);
     if (sniper) {
       const [dig, cnt] = sniper;
@@ -82,7 +78,6 @@ export default function App() {
       if (!alertState[key]) {
         speak(`Sniper alert on ${market.replace("R_", "Vol ")}. Digit ${dig} formed ${clusterThreshold} clusters.`);
         setAlertState((prev) => ({ ...prev, [key]: true }));
-        // assign color
         const colors = ["bg-yellow-500", "bg-green-500", "bg-red-500", "bg-blue-500", "bg-purple-500", "bg-pink-500"];
         setDigitColors((prev) => ({
           ...prev,
